@@ -415,29 +415,29 @@ class Session:
 
         query_name = ".".join(inner_query.QUALNAME.split(".")[1:])
 
-        while True:
-            try:
-                return await self.send(query, timeout=timeout)
-            except (FloodWait, FloodPremiumWait) as e:
-                amount = e.value
+        try:
+            return await self.send(query, timeout=timeout)
+        except (FloodWait, FloodPremiumWait) as e:
+            amount = e.value
 
-                if amount > sleep_threshold >= 0:
-                    raise
+            if amount > sleep_threshold >= 0:
+                raise
+            if retries <= 0:
+                raise
+            amount += 1+max(0,self.MAX_RETRIES-retries)
 
-                log.warning('[%s] Waiting for %s seconds before continuing (required by "%s")',
-                            self.client.name, amount, query_name)
+            log.warning(f"[{self.client.name}] Waiting for {amount} seconds before continuing (required by \"{query_name}\"): {retries} left of {self.MAX_RETRIES}")
+            await asyncio.sleep(amount)
+        except (OSError, InternalServerError, ServiceUnavailable) as e:
+            if retries <= 0:
+                raise e from None
 
-                await asyncio.sleep(amount)
-            except (OSError, InternalServerError, ServiceUnavailable) as e:
-                if retries == 0:
-                    raise e from None
+            (log.warning if retries < 2 else log.info)(
+                '[%s] Retrying "%s" due to: %s',
+                Session.MAX_RETRIES - retries + 1,
+                query_name, str(e) or repr(e)
+            )
 
-                (log.warning if retries < 2 else log.info)(
-                    '[%s] Retrying "%s" due to: %s',
-                    Session.MAX_RETRIES - retries + 1,
-                    query_name, str(e) or repr(e)
-                )
+            await asyncio.sleep(0.5)
 
-                await asyncio.sleep(0.5)
-
-                return await self.invoke(query, retries - 1, timeout)
+        return await self.invoke(query, retries=retries - 1, timeout=timeout, sleep_threshold=sleep_threshold)

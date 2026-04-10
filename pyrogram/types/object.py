@@ -17,15 +17,51 @@
 #  You should have received a copy of the GNU Lesser General Public License
 #  along with Pyrofork.  If not, see <http://www.gnu.org/licenses/>.
 
+import inspect
+import logging
+import traceback
 import typing
+import os
 from datetime import datetime
 from enum import Enum
 from json import dumps
 
 import pyrogram
 
+PYROGRAM_UNSAFE_PARSE = os.environ.get("PYROGRAM_UNSAFE_PARSE", "0") == "1"
 
-class Object:
+class ObjectMeta(type):
+    def __init__(cls, name, bases, namespace):
+        super().__init__(name, bases, namespace)
+        if ('_parse' in namespace) and not PYROGRAM_UNSAFE_PARSE:
+            original = namespace['_parse']
+            original_func = original.__func__ if isinstance(original, staticmethod) else original
+
+            def _make_safe(func, klass):
+                if inspect.iscoroutinefunction(func):
+                    async def _parse(*args, **kwargs):
+                        try:
+                            return await func(*args, **kwargs)
+                        except Exception:
+                            logging.error(
+                                f"Error parsing {klass.__name__}:\n" + traceback.format_exc()
+                            )
+                            return None
+                else:
+                    def _parse(*args, **kwargs):
+                        try:
+                            return func(*args, **kwargs)
+                        except Exception:
+                            logging.error(
+                                f"Error parsing {klass.__name__}:\n" + traceback.format_exc()
+                            )
+                            return None
+                return staticmethod(_parse)
+
+            cls._parse = _make_safe(original_func, cls)
+
+
+class Object(metaclass=ObjectMeta):
     def __init__(self, client: "pyrogram.Client" = None):
         self._client = client
 

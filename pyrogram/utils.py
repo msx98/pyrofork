@@ -24,6 +24,8 @@ import hashlib
 import re
 import os
 import struct
+import logging
+import traceback
 from concurrent.futures.thread import ThreadPoolExecutor
 from datetime import datetime, timezone
 from getpass import getpass
@@ -118,7 +120,12 @@ async def parse_messages(
     parsed_messages = []
 
     for message in messages.messages:
-        parsed_messages.append(await types.Message._parse(client, message, users, chats, topics, replies=0, business_connection_id=business_connection_id))
+        try:
+            parsed_messages.append(await types.Message._parse(client, message, users, chats, topics, replies=0, business_connection_id=business_connection_id))
+        except Exception as e:
+            logging.error(f"Error parsing raw message: {message}")
+            raise e
+        
 
     if replies:
         if not is_scheduled:
